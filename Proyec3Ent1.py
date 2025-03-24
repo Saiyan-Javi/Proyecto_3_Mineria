@@ -1,14 +1,14 @@
 import pandas as pd
 
 # Especificar la ruta del archivo de Excel
-file_path = "C:\\Users\\javie\\Documents\\UVG\\Cuarto año\\Primer Semestre\Mineria\\Merged file.csv"
+df = pd.read_csv("Merged_file.csv")
 
 # Especificar el motor manualmente (openpyxl para .xlsx, xlrd para .xls)
 engine = 'openpyxl'  # Cambia a 'xlrd' si es un archivo .xls
 
 # Cargar el archivo de Excel
 try:
-    sheets_dict = pd.read_excel(file_path, sheet_name=None, engine=engine)
+    sheets_dict = pd.read_excel(df, sheet_name=None, engine=engine)
     print("Archivo cargado correctamente.")
 except Exception as e:
     print(f"Error al cargar el archivo: {e}")
