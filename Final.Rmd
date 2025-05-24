@@ -1,0 +1,436 @@
+---
+title: "Final"
+author: "Javier Chiquín"
+date: "2025-05-24"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Cargar paquetes
+library(haven)
+library(tidyverse)
+library(haven)
+library(dplyr)
+library(ggplot2)
+library(skimr) # Para resumen detallado
+library(corrplot) # Para matriz de correlación
+library(summarytools)
+```
+```{r}
+# Definir la ruta a los archivos SPSS
+ruta <- "C:\\Users\\javie\\Downloads\\Divorcios\\"
+
+# Leer archivos SPSS (2014-2024)
+años_spss <- 2014:2024
+datos_spss <- list()
+for (año in años_spss) {
+  archivo <- paste0(ruta, "div_", año, ".sav")
+  datos_spss[[as.character(año)]] <- read_sav(archivo)
+}
+
+# Seleccionar columnas comunes y convertir CIUOHOM/CIUOMUJ a character
+columnas_comunes <- c("AÑOREG", "EDADHOM", "EDADMUJ", "CIUOHOM", "CIUOMUJ")
+for (año in names(datos_spss)) {
+  datos_spss[[año]] <- datos_spss[[año]] %>%
+    select(all_of(columnas_comunes)) %>%
+    mutate(
+      CIUOHOM = as.character(CIUOHOM),
+      CIUOMUJ = as.character(CIUOMUJ)
+    )
+}
+
+# Unificar datasets SPSS
+datos_unificados <- bind_rows(datos_spss, .id = "año")
+
+# Limpiar datos: eliminar NA en columnas clave y filtrar edades inválidas
+datos_limpios <- datos_unificados %>%
+  drop_na(AÑOREG, EDADHOM, EDADMUJ) %>%
+  filter(EDADHOM != 999 & EDADMUJ != 999)
+
+# Agregar datos por año para crear la variable respuesta
+datos_agregados <- datos_limpios %>%
+  group_by(AÑOREG) %>%
+  summarise(
+    divorcios = n(),
+    edadhom_promedio = mean(EDADHOM, na.rm = TRUE),
+    edadmuj_promedio = mean(EDADMUJ, na.rm = TRUE)
+  ) %>%
+  mutate(
+    pandemia = ifelse(AÑOREG %in% 2020:2022, 1, 0)
+  )
+
+# Guardar el dataset limpio y agregado
+write.csv(datos_limpios, "divorcios_limpios_2014_2024.csv", row.names = FALSE)
+write.csv(datos_agregados, "divorcios_agregados_2014_2024.csv", row.names = FALSE)
+
+# Verificar los datasets
+cat("Dataset limpio (individual):\n")
+summary(datos_limpios)
+dim(datos_limpios)
+names(datos_limpios)
+
+cat("\nDataset agregado (anual):\n")
+print(datos_agregados)
+dim(datos_agregados)
+names(datos_agregados)
+
+# Gráfico exploratorio: Divorcios por año
+ggplot(datos_agregados, aes(x = AÑOREG, y = divorcios)) +
+  geom_line() +
+  geom_point() +
+  theme_minimal() +
+  labs(title = "Cantidad de Divorcios por Año (2014-2024)",
+       x = "Año", y = "Divorcios") +
+  geom_vline(xintercept = 2020, linetype = "dashed", color = "red") +
+  geom_vline(xintercept = 2022, linetype = "dashed", color = "red")
+
+# Guardar el gráfico
+ggsave("divorcios_por_año_2014_2024.png")
+
+# Mostrar avisos si los hay
+warnings()
+```
+
+```{r}
+# Verificar el dataset limpio
+summary(datos_limpios)
+dim(datos_limpios)
+names(datos_limpios)
+```
+Empezamos el análisis exploratorio
+```{r}
+# 1. Estadísticas descriptivas para edad_hombre y edad_mujer
+print("Estadísticas descriptivas para edad_hombre:")
+summary(datos_limpios$EDADHOM)
+print("Estadísticas descriptivas para edad_mujer:")
+summary(datos_limpios$EDADMUJ)
+```
+
+```{r}
+# 2. Análisis temporal: Número de divorcios por año
+divorcios_por_año <- datos_limpios %>%
+  group_by(año) %>%
+  summarise(cantidad = n())
+print("Número de divorcios por año:")
+print(divorcios_por_año)
+
+```
+
+
+```{r}
+# 3. Comparación por grupos: Diferencia de edad promedio entre hombres y mujeres
+datos_limpios <- datos_limpios %>%
+  mutate(dif_edad = EDADHOM - EDADMUJ)
+
+print("Estadísticas de la diferencia de edad (hombre - mujer):")
+summary(datos_limpios$dif_edad)
+
+# Histograma de la diferencia de edad
+ggplot(datos_limpios, aes(x = dif_edad)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Distribución de la diferencia de edad (hombre - mujer)",
+       x = "Diferencia de edad", y = "Frecuencia") +
+  theme_minimal()
+```
+
+
+```{r}
+# 4. Distribución por ocupación: Divorcios por ocupación_hombre y ocupación_mujer
+divorcios_ocupacion_hombre <- datos_limpios %>%
+  group_by(CIUOHOM) %>%
+  summarise(cantidad = n()) %>%
+  arrange(desc(cantidad))
+
+divorcios_ocupacion_mujer <- datos_limpios %>%
+  group_by(CIUOMUJ) %>%
+  summarise(cantidad = n()) %>%
+  arrange(desc(cantidad))
+
+print("Divorcios por ocupación (hombre):")
+print(divorcios_ocupacion_hombre)
+print("Divorcios por ocupación (mujer):")
+print(divorcios_ocupacion_mujer)
+
+# Gráfico de barras para ocupación_hombre (top 10 ocupaciones)
+ggplot(head(divorcios_ocupacion_hombre, 10), aes(x = reorder(CIUOHOM, -cantidad), y = cantidad)) +
+  geom_bar(stat = "identity", fill = "coral") +
+  labs(title = "Top 10 ocupaciones con más divorcios (hombre)",
+       x = "Ocupación", y = "Número de divorcios") +
+  theme_minimal() +
+  coord_flip()
+```
+
+
+```{r}
+# 5. Edad promedio por ocupación (hombre y mujer)
+edad_promedio_ocupacion <- datos_limpios %>%
+  group_by(CIUOHOM) %>%
+  summarise(edad_prom_hombre = mean(EDADHOM, na.rm = TRUE)) %>%
+  arrange(desc(edad_prom_hombre))
+
+print("Edad promedio de hombres por ocupación:")
+print(head(edad_promedio_ocupacion, 10))
+
+# Histogramas de edades (hombre y mujer) - Corregido
+ggplot(datos_limpios, aes(x = EDADHOM)) +
+  geom_histogram(binwidth = 5, fill = "lightgreen", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de edad de hombres",
+       x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(datos_limpios, aes(x = EDADMUJ)) +
+  geom_histogram(binwidth = 5, fill = "lightpink", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de edad de mujeres",
+       x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+```
+
+```{r}
+#PARTE DEL CLUSTERING
+#Preambulo
+# Seleccionar solo columnas numéricas
+datos_numericos <- datos_limpios %>% select(where(is.numeric))
+
+# Eliminar columnas con NA si las hubiera
+datos_numericos <- na.omit(datos_numericos)
+
+# Escalar los datos (muy importante en clustering)
+datos_escalados <- scale(datos_numericos)
+
+#a. Determinar el número óptimo de clusters
+# Calcular total within-cluster sum of squares para k = 1 a 10
+wss <- sapply(1:10, function(k) {
+  kmeans(datos_escalados, centers = k, nstart = 10)$tot.withinss
+})
+
+# Graficar el codo
+plot(1:10, wss, type = "b", pch = 19,
+     xlab = "Número de clusters",
+     ylab = "Suma de cuadrados intra-cluster",
+     main = "Método del Codo")
+```
+
+```{r}
+#b. Ahora aplicar K-means cluster
+# Elegir k según el gráfico anterior (ejemplo: 3)
+k <- 2
+
+set.seed(123)
+kmeans_resultado <- kmeans(datos_escalados, centers = k, nstart = 25)
+
+# Añadir el cluster al dataframe original
+datos_limpios$cluster <- factor(kmeans_resultado$cluster)
+
+#c. Visualización de los clusters
+# PCA para reducir dimensiones
+pca <- prcomp(datos_escalados)
+pca_df <- data.frame(pca$x[, 1:2], cluster = datos_limpios$cluster)
+
+# Visualización
+ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "Clusters visualizados con PCA") +
+  theme_minimal()
+
+# Ver que caracteriza cada cluster
+aggregate(datos_numericos, by = list(Cluster = datos_limpios$cluster), FUN = mean)
+```
+
+Pasamos a la fase de modelación:
+
+```{r}
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(e1071)
+library(glmnet)
+library(ggplot2)
+```
+
+```{r}
+# Cargar dataset agregado
+datos_agregados <- read.csv("divorcios_agregados_2014_2024.csv")
+
+# Diagnóstico inicial: Verificar NA en datos_agregados
+cat("Resumen de datos_agregados:\n")
+summary(datos_agregados)
+cat("\nValores NA en datos_agregados:\n")
+print(colSums(is.na(datos_agregados)))
+cat("\nDatos agregados completos:\n")
+print(datos_agregados)
+
+# Imputar NA en edadhom_promedio y edadmuj_promedio (si los hay)
+datos_agregados <- datos_agregados %>%
+  mutate(
+    edadhom_promedio = ifelse(is.na(edadhom_promedio), 
+                              mean(edadhom_promedio, na.rm = TRUE), 
+                              edadhom_promedio),
+    edadmuj_promedio = ifelse(is.na(edadmuj_promedio), 
+                              mean(edadmuj_promedio, na.rm = TRUE), 
+                              edadmuj_promedio)
+  )
+
+# Verificar después de imputación
+cat("\nValores NA en datos_agregados después de imputación:\n")
+print(colSums(is.na(datos_agregados)))
+```
+
+```{r}
+# Dividir datos (entrenamiento: 2014-2019, prueba: 2020-2024)
+train_data <- datos_agregados %>% filter(AÑOREG <= 2019)
+test_data <- datos_agregados %>% filter(AÑOREG >= 2020)
+
+# Escalar predictores (excluir pandemia por varianza cero)
+predictors <- c("AÑOREG", "edadhom_promedio", "edadmuj_promedio")
+train_scaled <- train_data
+test_scaled <- test_data
+train_scaled[predictors] <- scale(train_data[predictors])
+test_scaled[predictors] <- scale(test_data[predictors], 
+                                 center = attr(scale(train_data[predictors]), "scaled:center"),
+                                 scale = attr(scale(train_data[predictors]), "scaled:scale"))
+
+# Diagnóstico: Verificar NA y varianza
+cat("Resumen de train_data:\n")
+summary(train_data)
+cat("\nValores NA en train_data:\n")
+print(colSums(is.na(train_data)))
+cat("\nResumen de train_scaled:\n")
+summary(train_scaled)
+cat("\nValores NA en train_scaled:\n")
+print(colSums(is.na(train_scaled)))
+cat("\nVarianza de predictores en train_data:\n")
+print(sapply(train_data[predictors], var, na.rm = TRUE))
+
+# Configurar validación cruzada para series temporales
+ctrl <- trainControl(method = "timeslice",
+                     initialWindow = 4,
+                     horizon = 1,
+                     fixedWindow = TRUE,
+                     skip = 0,
+                     summaryFunction = defaultSummary)
+```
+
+```{r}
+# Modelo 1: Lasso
+lasso_model <- train(
+  divorcios ~ ., 
+  data = train_data,
+  method = "glmnet",
+  trControl = ctrl,
+  tuneGrid = expand.grid(alpha = 1, lambda = c(0.1, 0.5, 1, 2)),
+  metric = "RMSE"
+)
+
+# Modelo 2: Random Forest
+rf_model <- train(
+  divorcios ~ ., 
+  data = train_data,
+  method = "rf",
+  trControl = ctrl,
+  tuneGrid = expand.grid(mtry = c(1, 2, 3)),
+  metric = "RMSE"
+)
+
+# Modelo 3: SVR
+svr_model <- train(
+  divorcios ~ ., 
+  data = train_scaled,
+  method = "svmRadial",
+  trControl = ctrl,
+  tuneGrid = expand.grid(sigma = c(0.1, 1), C = c(0.1, 1, 10)),
+  metric = "RMSE"
+)
+```
+Resultados de los modelos:
+```{r}
+# Evaluar modelos en el conjunto de prueba
+lasso_pred <- predict(lasso_model, test_data)
+rf_pred <- predict(rf_model, test_data)
+svr_pred <- predict(svr_model, test_scaled)
+
+lasso_metrics <- postResample(lasso_pred, test_data$divorcios)
+rf_metrics <- postResample(rf_pred, test_data$divorcios)
+svr_metrics <- postResample(svr_pred, test_data$divorcios)
+
+# Mostrar resultados
+cat("Lasso Metrics:\n"); print(lasso_metrics)
+cat("Random Forest Metrics:\n"); print(rf_metrics)
+cat("SVR Metrics:\n"); print(svr_metrics)
+```
+
+```{r}
+# Mejores parámetros
+cat("\nMejores parámetros:\n")
+cat("Lasso:", toString(lasso_model$bestTune), "\n")
+cat("Random Forest:", toString(rf_model$bestTune), "\n")
+cat("SVR:", toString(svr_model$bestTune), "\n")
+
+# Guardar resultados en un CSV
+resultados <- data.frame(
+  Modelo = c("Lasso", "Random Forest", "SVR"),
+  RMSE = c(lasso_metrics["RMSE"], rf_metrics["RMSE"], svr_metrics["RMSE"]),
+  MAE = c(lasso_metrics["MAE"], rf_metrics["MAE"], svr_metrics["MAE"])
+)
+write.csv(resultados, "resultados_modelos_2014_2024.csv", row.names = FALSE)
+
+# Graficar predicciones vs. reales (todos los modelos)
+predicciones <- data.frame(
+  Año = test_data$AÑOREG,
+  Real = test_data$divorcios,
+  Lasso = lasso_pred,
+  Random_Forest = rf_pred,
+  SVR = svr_pred
+)
+predicciones_long <- predicciones %>%
+  pivot_longer(cols = c(Lasso, Random_Forest, SVR), 
+               names_to = "Modelo", 
+               values_to = "Predicho")
+
+ggplot(predicciones_long, aes(x = Año, y = Predicho, color = Modelo)) +
+  geom_line() +
+  geom_point(aes(y = Real, color = "Real"), size = 3) +
+  theme_minimal() +
+  labs(title = "Predicciones vs. Reales (2020-2024)",
+       x = "Año", y = "Divorcios") +
+  scale_color_manual(values = c("Lasso" = "blue", "Random_Forest" = "green", 
+                                "SVR" = "purple", "Real" = "black"))
+ggsave("predicciones_vs_reales_2014_2024.png")
+```
+
+```{r}
+# Graficar residuos
+residuos <- data.frame(
+  Año = test_data$AÑOREG,
+  Lasso = test_data$divorcios - lasso_pred,
+  Random_Forest = test_data$divorcios - rf_pred,
+  SVR = test_data$divorcios - svr_pred
+)
+residuos_long <- residuos %>%
+  pivot_longer(cols = c(Lasso, Random_Forest, SVR), 
+               names_to = "Modelo", 
+               values_to = "Residuo")
+
+ggplot(residuos_long, aes(x = Año, y = Residuo, color = Modelo)) +
+  geom_line() +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(title = "Residuos por Modelo (2020-2024)",
+       x = "Año", y = "Residuo (Real - Predicho)") +
+  scale_color_manual(values = c("Lasso" = "blue", "Random_Forest" = "green", "SVR" = "purple"))
+ggsave("residuos_modelos_2014_2024.png")
+
+# Guardar modelos
+saveRDS(lasso_model, "lasso_model_2014_2024.rds")
+saveRDS(rf_model, "rf_model_2014_2024.rds")
+saveRDS(svr_model, "svr_model_2014_2024.rds")
+```
+
+
+
+
+
