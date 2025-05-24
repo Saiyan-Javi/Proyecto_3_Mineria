@@ -1,21 +1,26 @@
 # Instalar paquetes si no los tienes
 install.packages("haven")
 install.packages("tidyverse")
-install.packages("ggplot2")
 
 # Cargar paquetes
 library(haven)
 library(tidyverse)
+library(haven)
+library(dplyr)
 library(ggplot2)
+library(skimr) # Para resumen detallado
+library(corrplot) # Para matriz de correlación
+library(summarytools)
+
 
 # Definir la ruta a los archivos SPSS
-ruta <- "C:/Users/ricar/Documents/UVG-CUARTO AÑO/Divorcios/"
+ruta <- "C:\\Users\\javie\\Downloads\\Divorcios\\"
 
-# Leer archivos SPSS (2014-2024)
+# Leer archivos SPSS (2015-2022)
 años_spss <- 2014:2024
 datos_spss <- list()
 for (año in años_spss) {
-  archivo <- paste0(ruta, "divorcios_", año, ".sav")
+  archivo <- paste0(ruta, "div_", año, ".sav")
   datos_spss[[as.character(año)]] <- read_sav(archivo)
 }
 
@@ -38,45 +43,155 @@ datos_limpios <- datos_unificados %>%
   drop_na(AÑOREG, EDADHOM, EDADMUJ) %>%
   filter(EDADHOM != 999 & EDADMUJ != 999)
 
-# Agregar datos por año para crear la variable respuesta
-datos_agregados <- datos_limpios %>%
-  group_by(AÑOREG) %>%
-  summarise(
-    divorcios = n(),
-    edadhom_promedio = mean(EDADHOM, na.rm = TRUE),
-    edadmuj_promedio = mean(EDADMUJ, na.rm = TRUE)
-  ) %>%
-  mutate(
-    pandemia = ifelse(AÑOREG %in% 2020:2022, 1, 0)
-  )
+# Guardar el dataset limpio
+write.csv(datos_limpios, "divorcios_limpios_2015_2022.csv", row.names = FALSE)
 
-# Guardar el dataset limpio y agregado
-write.csv(datos_limpios, "divorcios_limpios_2014_2024.csv", row.names = FALSE)
-write.csv(datos_agregados, "divorcios_agregados_2014_2024.csv", row.names = FALSE)
-
-# Verificar los datasets
-cat("Dataset limpio (individual):\n")
+# Verificar el dataset limpio
 summary(datos_limpios)
 dim(datos_limpios)
 names(datos_limpios)
 
-cat("\nDataset agregado (anual):\n")
-print(datos_agregados)
-dim(datos_agregados)
-names(datos_agregados)
-
-# Gráfico exploratorio: Divorcios por año
-ggplot(datos_agregados, aes(x = AÑOREG, y = divorcios)) +
-  geom_line() +
-  geom_point() +
-  theme_minimal() +
-  labs(title = "Cantidad de Divorcios por Año (2014-2024)",
-       x = "Año", y = "Divorcios") +
-  geom_vline(xintercept = 2020, linetype = "dashed", color = "red") +
-  geom_vline(xintercept = 2022, linetype = "dashed", color = "red")
-
-# Guardar el gráfico
-ggsave("divorcios_por_año_2014_2024.png")
-
 # Mostrar avisos si los hay
 warnings()
+
+# 1. Estadísticas descriptivas para edad_hombre y edad_mujer
+print("Estadísticas descriptivas para edad_hombre:")
+summary(datos_limpios$EDADHOM)
+print("Estadísticas descriptivas para edad_mujer:")
+summary(datos_limpios$EDADMUJ)
+
+# 2. Análisis temporal: Número de divorcios por año
+divorcios_por_año <- datos_limpios %>%
+  group_by(año) %>%
+  summarise(cantidad = n())
+print("Número de divorcios por año:")
+print(divorcios_por_año)
+
+# Gráfico de tendencia temporal
+ggplot(divorcios_por_año, aes(x = año, y = cantidad)) +
+  geom_line(color = "blue") +
+  geom_point() +
+  labs(title = "Tendencia de divorcios por año (2014-2023)",
+       x = "Año", y = "Número de divorcios") +
+  theme_minimal()
+
+# 3. Comparación por grupos: Diferencia de edad promedio entre hombres y mujeres
+datos_limpios <- datos_limpios %>%
+  mutate(dif_edad = EDADHOM - EDADMUJ)
+
+print("Estadísticas de la diferencia de edad (hombre - mujer):")
+summary(datos_limpios$dif_edad)
+
+# Histograma de la diferencia de edad
+ggplot(datos_limpios, aes(x = dif_edad)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Distribución de la diferencia de edad (hombre - mujer)",
+       x = "Diferencia de edad", y = "Frecuencia") +
+  theme_minimal()
+
+# 4. Distribución por ocupación: Divorcios por ocupación_hombre y ocupación_mujer
+divorcios_ocupacion_hombre <- datos_limpios %>%
+  group_by(CIUOHOM) %>%
+  summarise(cantidad = n()) %>%
+  arrange(desc(cantidad))
+
+divorcios_ocupacion_mujer <- datos_limpios %>%
+  group_by(CIUOMUJ) %>%
+  summarise(cantidad = n()) %>%
+  arrange(desc(cantidad))
+
+print("Divorcios por ocupación (hombre):")
+print(divorcios_ocupacion_hombre)
+print("Divorcios por ocupación (mujer):")
+print(divorcios_ocupacion_mujer)
+
+# Gráfico de barras para ocupación_hombre (top 10 ocupaciones)
+ggplot(head(divorcios_ocupacion_hombre, 10), aes(x = reorder(CIUOHOM, -cantidad), y = cantidad)) +
+  geom_bar(stat = "identity", fill = "coral") +
+  labs(title = "Top 10 ocupaciones con más divorcios (hombre)",
+       x = "Ocupación", y = "Número de divorcios") +
+  theme_minimal() +
+  coord_flip()
+
+
+# 5. Edad promedio por ocupación (hombre y mujer)
+edad_promedio_ocupacion <- datos_limpios %>%
+  group_by(CIUOHOM) %>%
+  summarise(edad_prom_hombre = mean(EDADHOM, na.rm = TRUE)) %>%
+  arrange(desc(edad_prom_hombre))
+
+print("Edad promedio de hombres por ocupación:")
+print(head(edad_promedio_ocupacion, 10))
+
+# Histogramas de edades (hombre y mujer) - Corregido
+ggplot(datos_limpios, aes(x = EDADHOM)) +
+  geom_histogram(binwidth = 5, fill = "lightgreen", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de edad de hombres",
+       x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(datos_limpios, aes(x = EDADMUJ)) +
+  geom_histogram(binwidth = 5, fill = "lightpink", color = "black", alpha = 0.7) +
+  labs(title = "Distribución de edad de mujeres",
+       x = "Edad", y = "Frecuencia") +
+  theme_minimal()
+
+#PARTE DEL CLUSTERING
+#Preambulo
+# Seleccionar solo columnas numéricas
+datos_numericos <- datos_limpios %>% select(where(is.numeric))
+
+# Eliminar columnas con NA si las hubiera
+datos_numericos <- na.omit(datos_numericos)
+
+# Escalar los datos (muy importante en clustering)
+datos_escalados <- scale(datos_numericos)
+
+#a. Determinar el número óptimo de clusters
+# Calcular total within-cluster sum of squares para k = 1 a 10
+wss <- sapply(1:10, function(k) {
+  kmeans(datos_escalados, centers = k, nstart = 10)$tot.withinss
+})
+
+# Graficar el codo
+plot(1:10, wss, type = "b", pch = 19,
+     xlab = "Número de clusters",
+     ylab = "Suma de cuadrados intra-cluster",
+     main = "Método del Codo")
+#Con índice de silueta
+library(cluster)
+
+# Calcular ancho promedio de silueta para k = 2 a 10
+sil <- sapply(2:10, function(k) {
+  pam(datos_escalados, k)$silinfo$avg.width
+})
+
+plot(2:10, sil, type = "b", pch = 19,
+     xlab = "Número de clusters",
+     ylab = "Ancho promedio de silueta",
+     main = "Análisis de Silueta")
+
+#b. Ahora aplicar K-means cluster
+# Elegir k según el gráfico anterior (ejemplo: 3)
+k <- 2
+
+set.seed(123)
+kmeans_resultado <- kmeans(datos_escalados, centers = k, nstart = 25)
+
+# Añadir el cluster al dataframe original
+spss_2014$cluster <- factor(kmeans_resultado$cluster)
+
+#c. Visualización de los clusters
+# PCA para reducir dimensiones
+pca <- prcomp(datos_escalados)
+pca_df <- data.frame(pca$x[, 1:2], cluster = spss_2014$cluster)
+
+# Visualización
+ggplot(pca_df, aes(x = PC1, y = PC2, color = cluster)) +
+  geom_point(size = 2) +
+  labs(title = "Clusters visualizados con PCA") +
+  theme_minimal()
+
+# Ver que caracteriza cada cluster
+aggregate(datos_numericos, by = list(Cluster = spss_2014$cluster), FUN = mean)
+
